@@ -448,6 +448,70 @@ namespace VolumeMixer
         }
     }
 
+    // ─── Title bar icon button (close / minimize) ─────────────────────────────
+    public class TitleBarButton : Control
+    {
+        public string Symbol { get; set; }
+        public bool IsDanger { get; set; } = false;  // true = red bg on hover (close)
+
+        private bool _hover, _down;
+
+        public TitleBarButton(string symbol)
+        {
+            Symbol = symbol;
+            SetStyle(ControlStyles.OptimizedDoubleBuffer |
+                     ControlStyles.UserPaint |
+                     ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.SupportsTransparentBackColor, true);
+            Size = new Size(30, 30);
+            BackColor = Color.Transparent;
+            Cursor = Cursors.Hand;
+
+            MouseEnter += (s, e) => { _hover = true; Invalidate(); };
+            MouseLeave += (s, e) => { _hover = false; _down = false; Invalidate(); };
+            MouseDown += (s, e) => { if (e.Button == MouseButtons.Left) { _down = true; Invalidate(); } };
+            MouseUp += (s, e) => { _down = false; Invalidate(); };
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
+            g.Clear(Parent != null ? Parent.BackColor : Theme.Surface);
+
+            if (_hover || _down)
+            {
+                Color fill = IsDanger
+                    ? Color.FromArgb(_down ? 180 : 140, 210, 45, 45)
+                    : Color.FromArgb(_down ? 60 : 38, Theme.Accent);
+                int pad = 3;
+                var rect = new Rectangle(pad, pad, Width - pad * 2, Height - pad * 2);
+                int radius = 6;
+                using (var path = new System.Drawing.Drawing2D.GraphicsPath())
+                {
+                    int d = radius * 2;
+                    path.AddArc(rect.X, rect.Y, d, d, 180, 90);
+                    path.AddArc(rect.Right - d, rect.Y, d, d, 270, 90);
+                    path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
+                    path.AddArc(rect.X, rect.Bottom - d, d, d, 90, 90);
+                    path.CloseFigure();
+                    g.FillPath(new SolidBrush(fill), path);
+                }
+            }
+
+            Color fg = _hover
+                ? (IsDanger ? Color.White : Theme.Accent)
+                : Theme.TextSecondary;
+
+            using (var sf = new System.Drawing.StringFormat
+            { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
+            using (var f = new Font("Segoe UI", Symbol == "\u2013" ? 13f : 10f,
+                                    Symbol == "\u2013" ? FontStyle.Regular : FontStyle.Bold))
+                g.DrawString(Symbol, f, new SolidBrush(fg),
+                    new RectangleF(0, 0, Width, Height), sf);
+        }
+    }
+
     // ─── Ghost outline button ─────────────────────────────────────────────────
     public class GhostButton : Button
     {

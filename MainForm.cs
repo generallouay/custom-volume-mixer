@@ -49,10 +49,13 @@ namespace VolumeMixer
         private Panel _topPanel;
         private Panel _bottomPanel;
         private System.Windows.Forms.Timer _pollTimer;
+        private NotifyIcon _trayIcon;
+        private bool _reallyClosing = false;
 
         public MainForm()
         {
             BuildUI();
+            SetupTrayIcon();
             LoadPreferences();
             SyncSessions(force: true);
             InstallHook();
@@ -210,27 +213,30 @@ namespace VolumeMixer
             };
             subtitleLbl.MouseDown += DragForm;
 
-            var closeBtn = new Button
+            var closeBtn = new TitleBarButton("x")
             {
-                Text = "x",
-                Font = new Font("Segoe UI", 9f, FontStyle.Bold),
-                Size = new Size(30, 30),
-                FlatStyle = FlatStyle.Flat,
-                BackColor = Color.Transparent,
-                ForeColor = Theme.TextSecondary,
-                Cursor = Cursors.Hand,
-                Anchor = AnchorStyles.Top | AnchorStyles.Right,
-                UseVisualStyleBackColor = false
+                IsDanger = false,
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
-            closeBtn.FlatAppearance.BorderSize = 0;
-            closeBtn.Click += (s, e) => Application.Exit();
-            closeBtn.MouseEnter += (s, e) => closeBtn.ForeColor = Theme.Accent;
-            closeBtn.MouseLeave += (s, e) => closeBtn.ForeColor = Theme.TextSecondary;
-            _topPanel.Resize += (s, e) => closeBtn.Location = new Point(_topPanel.Width - 38, 22);
+            closeBtn.Click += (s, e) => { _reallyClosing = true; Application.Exit(); };
+
+            var minimizeBtn = new TitleBarButton("\u2013")
+            {
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
+            };
+            minimizeBtn.Click += (s, e) => HideToTray();
+
+            _topPanel.Resize += (s, e) =>
+            {
+                closeBtn.Location = new Point(_topPanel.Width - 38, 22);
+                minimizeBtn.Location = new Point(_topPanel.Width - 72, 22);
+            };
             closeBtn.Location = new Point(392, 22);
+            minimizeBtn.Location = new Point(358, 22);
 
             _topPanel.Controls.Add(titleLbl);
             _topPanel.Controls.Add(subtitleLbl);
+            _topPanel.Controls.Add(minimizeBtn);
             _topPanel.Controls.Add(closeBtn);
 
             // ── TOOLBAR ───────────────────────────────────────────────────────
@@ -434,6 +440,63 @@ namespace VolumeMixer
         }
 
         // ══════════════════════════════════════════════════════════════════════
+        //  SYSTEM TRAY
+        // ══════════════════════════════════════════════════════════════════════
+        private void SetupTrayIcon()
+        {
+            var menu = new ContextMenuStrip();
+            menu.BackColor = Theme.Surface;
+            menu.ForeColor = Theme.TextPrimary;
+            menu.Font = new Font("Segoe UI", 9f);
+
+            var showItem = new ToolStripMenuItem("Show Volume Mixer");
+            showItem.Font = new Font("Segoe UI", 9f, FontStyle.Bold);
+            showItem.Click += (s, e) => ShowFromTray();
+
+            var exitItem = new ToolStripMenuItem("Exit");
+            exitItem.Click += (s, e) => { _reallyClosing = true; Application.Exit(); };
+
+            menu.Items.Add(showItem);
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(exitItem);
+
+            // Load the icon from the exe itself — guarantees the real app icon
+            // is used in the tray, not the WinForms default placeholder.
+            Icon appIcon = null;
+            try { appIcon = Icon.ExtractAssociatedIcon(System.Windows.Forms.Application.ExecutablePath); }
+            catch { appIcon = SystemIcons.Application; }
+
+            // Apply to the form too so the taskbar/alt-tab entry also uses it
+            this.Icon = appIcon;
+
+            _trayIcon = new NotifyIcon
+            {
+                Text = "Volume Mixer",
+                Icon = appIcon,
+                ContextMenuStrip = menu,
+                Visible = false
+            };
+
+            _trayIcon.DoubleClick += (s, e) => ShowFromTray();
+        }
+
+        private void HideToTray()
+        {
+            _trayIcon.Visible = true;
+            Hide();
+            _trayIcon.ShowBalloonTip(1500, "Volume Mixer", "Running in the background. Double-click to open.", ToolTipIcon.None);
+        }
+
+        private void ShowFromTray()
+        {
+            Show();
+            WindowState = FormWindowState.Normal;
+            Activate();
+            BringToFront();
+            _trayIcon.Visible = false;
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
         //  GLOBAL KEYBOARD HOOK
         // ══════════════════════════════════════════════════════════════════════
         private void InstallHook()
@@ -473,7 +536,14 @@ namespace VolumeMixer
 
         protected override void OnFormClosing(FormClosingEventArgs e)
         {
+            if (!_reallyClosing && e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true;
+                HideToTray();
+                return;
+            }
             _pollTimer?.Stop();
+            _trayIcon?.Dispose();
             if (_hookHandle != IntPtr.Zero) UnhookWindowsHookEx(_hookHandle);
             base.OnFormClosing(e);
         }
