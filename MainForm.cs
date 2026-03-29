@@ -28,10 +28,12 @@ namespace VolumeMixer
         private const string REG_HOTKEY = "Hotkey";
         private const string REG_CHECKED = "CheckedApps";
         private const string REG_MIC_HOTKEY = "MicHotkey";
+        private const string REG_INPUT_DEVICES = "SelectedInputDevices";
 
         // ── State ─────────────────────────────────────────────────────────────
         private Keys _hotkey = Keys.None;
         private Keys _micHotkey = Keys.None;
+        private HashSet<string> _selectedInputDevices = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         private bool _isMuted = false;
         private bool _listeningKey = false;
         private bool _listeningMicKey = false;
@@ -57,6 +59,8 @@ namespace VolumeMixer
         private System.Windows.Forms.Timer _pollTimer;
         private NotifyIcon _trayIcon;
         private bool _reallyClosing = false;
+        private Panel _settingsPanel;
+        private bool _settingsVisible = false;
 
         public MainForm()
         {
@@ -133,7 +137,28 @@ namespace VolumeMixer
 
         private void PollMicStatus()
         {
-            try { _micStatus.SetMuted(AudioManager.GetMicMute()); }
+            try
+            {
+                if (_selectedInputDevices.Count > 0)
+                {
+                    var devices = AudioManager.GetCaptureDevices();
+                    bool allMuted = true;
+                    bool anyFound = false;
+                    foreach (var d in devices)
+                    {
+                        if (_selectedInputDevices.Contains(d.Id))
+                        {
+                            anyFound = true;
+                            if (!AudioManager.GetMicMuteForDevice(d.Id)) { allMuted = false; break; }
+                        }
+                    }
+                    _micStatus.SetMuted(anyFound && allMuted);
+                }
+                else
+                {
+                    _micStatus.SetMuted(AudioManager.GetMicMute());
+                }
+            }
             catch { }
         }
 
@@ -150,6 +175,7 @@ namespace VolumeMixer
                     key.SetValue(REG_HOTKEY, (int)_hotkey, RegistryValueKind.DWord);
                     key.SetValue(REG_MIC_HOTKEY, (int)_micHotkey, RegistryValueKind.DWord);
                     key.SetValue(REG_CHECKED, string.Join(",", _checkedApps), RegistryValueKind.String);
+                    key.SetValue(REG_INPUT_DEVICES, string.Join("|", _selectedInputDevices), RegistryValueKind.String);
                 }
             }
             catch { }
@@ -193,6 +219,12 @@ namespace VolumeMixer
                         foreach (var name in checkedVal.Split(','))
                             if (!string.IsNullOrWhiteSpace(name))
                                 _checkedApps.Add(name.Trim());
+
+                    var inputDevVal = key.GetValue(REG_INPUT_DEVICES) as string;
+                    if (!string.IsNullOrEmpty(inputDevVal))
+                        foreach (var id in inputDevVal.Split('|'))
+                            if (!string.IsNullOrWhiteSpace(id))
+                                _selectedInputDevices.Add(id.Trim());
 
                     // Now apply — _loading flag prevents AssignHotkey from triggering SavePreferences
                     _loading = true;
@@ -265,16 +297,25 @@ namespace VolumeMixer
             };
             minimizeBtn.Click += (s, e) => HideToTray();
 
+            var settingsBtn = new TitleBarButton("\u2699")
+            {
+                Anchor = AnchorStyles.Top | AnchorStyles.Right
+            };
+            settingsBtn.Click += (s, e) => { if (_settingsVisible) HideSettings(); else ShowSettings(); };
+
             _topPanel.Resize += (s, e) =>
             {
                 closeBtn.Location = new Point(_topPanel.Width - 38, 22);
                 minimizeBtn.Location = new Point(_topPanel.Width - 72, 22);
+                settingsBtn.Location = new Point(_topPanel.Width - 106, 22);
             };
             closeBtn.Location = new Point(392, 22);
             minimizeBtn.Location = new Point(358, 22);
+            settingsBtn.Location = new Point(324, 22);
 
             _topPanel.Controls.Add(titleLbl);
             _topPanel.Controls.Add(subtitleLbl);
+            _topPanel.Controls.Add(settingsBtn);
             _topPanel.Controls.Add(minimizeBtn);
             _topPanel.Controls.Add(closeBtn);
 
@@ -536,6 +577,160 @@ namespace VolumeMixer
         }
 
         // ══════════════════════════════════════════════════════════════════════
+        //  SETTINGS SCREEN
+        // ══════════════════════════════════════════════════════════════════════
+        private void ShowSettings()
+        {
+            if (_settingsVisible) return;
+            _settingsVisible = true;
+            BuildSettingsPanel();
+            _settingsPanel.Location = new Point(0, _topPanel.Height);
+            _settingsPanel.Size = new Size(Width, Height - _topPanel.Height);
+            _settingsPanel.Anchor = AnchorStyles.Top | AnchorStyles.Bottom | AnchorStyles.Left | AnchorStyles.Right;
+            Controls.Add(_settingsPanel);
+            _settingsPanel.BringToFront();
+        }
+
+        private void HideSettings()
+        {
+            if (!_settingsVisible) return;
+            _settingsVisible = false;
+            if (_settingsPanel != null)
+            {
+                Controls.Remove(_settingsPanel);
+                _settingsPanel.Dispose();
+                _settingsPanel = null;
+            }
+        }
+
+        private void BuildSettingsPanel()
+        {
+            _settingsPanel = new Panel { BackColor = Theme.Background };
+
+            // ── Header ──────────────────────────────────────────────────────
+            var header = new Panel { Dock = DockStyle.Top, Height = 50, BackColor = Theme.Background };
+            header.Paint += (s, e) =>
+                e.Graphics.DrawLine(new System.Drawing.Pen(Theme.Border, 1),
+                    0, ((Control)s).Height - 1, ((Control)s).Width, ((Control)s).Height - 1);
+
+            var backBtn = new GhostButton { Text = "\u2190  Back", Size = new Size(76, 28), Location = new Point(14, 11) };
+            backBtn.Click += (s, e) => HideSettings();
+
+            var titleLbl = new Label
+            {
+                Text = "INPUT DEVICES",
+                Font = new Font("Segoe UI", 9f, FontStyle.Bold),
+                ForeColor = Theme.TextPrimary,
+                BackColor = Color.Transparent,
+                AutoSize = true,
+                Location = new Point(98, 16)
+            };
+
+            var selectAllBtn = new GhostButton { Text = "Select All", Size = new Size(80, 28) };
+            var clearBtn = new GhostButton { Text = "Clear", Size = new Size(56, 28) };
+
+            Action layoutHeader = () =>
+            {
+                selectAllBtn.Location = new Point(header.Width - 80 - 56 - 14 - 6, 11);
+                clearBtn.Location = new Point(header.Width - 56 - 14, 11);
+            };
+            header.Resize += (s, e) => layoutHeader();
+            header.HandleCreated += (s, e) => layoutHeader();
+
+            header.Controls.Add(backBtn);
+            header.Controls.Add(titleLbl);
+            header.Controls.Add(selectAllBtn);
+            header.Controls.Add(clearBtn);
+
+            // ── Description ─────────────────────────────────────────────────
+            var descPanel = new Panel { Dock = DockStyle.Top, Height = 40, BackColor = Theme.Background };
+            var descLbl = new Label
+            {
+                Text = "Select which input devices the mic mute hotkey controls.",
+                Font = new Font("Segoe UI", 8f),
+                ForeColor = Theme.TextSecondary,
+                BackColor = Color.Transparent,
+                AutoSize = false,
+                Dock = DockStyle.Fill,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Padding = new Padding(16, 0, 16, 0)
+            };
+            descPanel.Controls.Add(descLbl);
+
+            // ── Device list ─────────────────────────────────────────────────
+            var deviceList = new Panel
+            {
+                Dock = DockStyle.Fill,
+                BackColor = Theme.Surface,
+                AutoScroll = true
+            };
+
+            var devices = AudioManager.GetCaptureDevices();
+
+            selectAllBtn.Click += (s, e) =>
+            {
+                foreach (Control c in deviceList.Controls)
+                {
+                    var row = c as InputDeviceRow;
+                    if (row != null && !row.IsChecked)
+                    {
+                        row.IsChecked = true;
+                        _selectedInputDevices.Add(row.DeviceId);
+                        row.Invalidate();
+                    }
+                }
+                SavePreferences();
+            };
+
+            clearBtn.Click += (s, e) =>
+            {
+                foreach (Control c in deviceList.Controls)
+                {
+                    var row = c as InputDeviceRow;
+                    if (row != null && row.IsChecked)
+                    {
+                        row.IsChecked = false;
+                        row.Invalidate();
+                    }
+                }
+                _selectedInputDevices.Clear();
+                SavePreferences();
+            };
+
+            // Add rows in reverse order (Dock.Top stacks from top)
+            for (int i = devices.Count - 1; i >= 0; i--)
+            {
+                var d = devices[i];
+                var row = new InputDeviceRow(d.Id, d.Name, _selectedInputDevices.Contains(d.Id));
+                row.CheckedChanged += r =>
+                {
+                    if (r.IsChecked) _selectedInputDevices.Add(r.DeviceId);
+                    else _selectedInputDevices.Remove(r.DeviceId);
+                    SavePreferences();
+                };
+                deviceList.Controls.Add(row);
+            }
+
+            if (devices.Count == 0)
+            {
+                var noDevLbl = new Label
+                {
+                    Text = "No input devices found.",
+                    Font = new Font("Segoe UI", 9f),
+                    ForeColor = Theme.TextSecondary,
+                    TextAlign = ContentAlignment.MiddleCenter,
+                    Dock = DockStyle.Fill,
+                    BackColor = Theme.Surface
+                };
+                deviceList.Controls.Add(noDevLbl);
+            }
+
+            _settingsPanel.Controls.Add(deviceList);
+            _settingsPanel.Controls.Add(descPanel);
+            _settingsPanel.Controls.Add(header);
+        }
+
+        // ══════════════════════════════════════════════════════════════════════
         //  SYSTEM TRAY
         // ══════════════════════════════════════════════════════════════════════
         private void SetupTrayIcon()
@@ -622,7 +817,30 @@ namespace VolumeMixer
 
         private void ToggleMicMute()
         {
-            AudioManager.ToggleMicMute();
+            if (_selectedInputDevices.Count > 0)
+            {
+                var devices = AudioManager.GetCaptureDevices();
+                var selected = new List<CaptureDeviceInfo>();
+                foreach (var d in devices)
+                    if (_selectedInputDevices.Contains(d.Id)) selected.Add(d);
+
+                if (selected.Count > 0)
+                {
+                    bool anyLive = false;
+                    foreach (var d in selected)
+                        if (!AudioManager.GetMicMuteForDevice(d.Id)) { anyLive = true; break; }
+                    foreach (var d in selected)
+                        AudioManager.SetMicMuteForDevice(d.Id, anyLive);
+                }
+                else
+                {
+                    AudioManager.ToggleMicMute();
+                }
+            }
+            else
+            {
+                AudioManager.ToggleMicMute();
+            }
             PollMicStatus();
         }
 

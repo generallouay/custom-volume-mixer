@@ -33,6 +33,12 @@ namespace VolumeMixer
         public IAudioMeterInformation GetMeter() => RawSession as IAudioMeterInformation;
     }
 
+    public class CaptureDeviceInfo
+    {
+        public string Id { get; set; }
+        public string Name { get; set; }
+    }
+
     [ComVisible(true)]
     public class AudioSessionWatcher : IAudioSessionNotification
     {
@@ -289,6 +295,104 @@ namespace VolumeMixer
                 Guid epvId = IID_IAudioEndpointVolume;
                 object epvObj;
                 if (capDevice.Activate(ref epvId, 1, IntPtr.Zero, out epvObj) != 0 || epvObj == null) return false;
+
+                var epv = (IAudioEndpointVolume)epvObj;
+                bool muted;
+                epv.GetMute(out muted);
+                return muted;
+            }
+            catch { return false; }
+        }
+
+        // ── Capture device enumeration ──────────────────────────────────────
+        public static List<CaptureDeviceInfo> GetCaptureDevices()
+        {
+            var result = new List<CaptureDeviceInfo>();
+            try
+            {
+                Guid clsid = CLSID_MMDeviceEnumerator;
+                Guid iid = IID_IMMDeviceEnumerator;
+                object enumObj;
+                if (Ole32.CoCreateInstance(ref clsid, IntPtr.Zero, 1, ref iid, out enumObj) != 0) return result;
+                var enumerator = (IMMDeviceEnumerator)enumObj;
+
+                IMMDeviceCollection devices;
+                // dataFlow=1 (eCapture), DEVICE_STATE_ACTIVE=1
+                if (enumerator.EnumAudioEndpoints(1, 1, out devices) != 0 || devices == null) return result;
+
+                uint count;
+                devices.GetCount(out count);
+
+                for (uint i = 0; i < count; i++)
+                {
+                    try
+                    {
+                        IMMDevice device;
+                        if (devices.Item(i, out device) != 0 || device == null) continue;
+
+                        string id;
+                        device.GetId(out id);
+
+                        string name = id;
+                        IPropertyStore store;
+                        if (device.OpenPropertyStore(0, out store) == 0 && store != null)
+                        {
+                            PROPERTYKEY pkey = PropertyKeys.PKEY_Device_FriendlyName;
+                            PROPVARIANT pv;
+                            if (store.GetValue(ref pkey, out pv) == 0 && pv.vt == 31 && pv.pointerVal != IntPtr.Zero)
+                                name = Marshal.PtrToStringUni(pv.pointerVal);
+                        }
+
+                        result.Add(new CaptureDeviceInfo { Id = id, Name = name });
+                    }
+                    catch { }
+                }
+            }
+            catch { }
+            return result;
+        }
+
+        // ── Per-device mic mute ─────────────────────────────────────────────
+        public static void SetMicMuteForDevice(string deviceId, bool mute)
+        {
+            try
+            {
+                Guid clsid = CLSID_MMDeviceEnumerator;
+                Guid iid = IID_IMMDeviceEnumerator;
+                object enumObj;
+                if (Ole32.CoCreateInstance(ref clsid, IntPtr.Zero, 1, ref iid, out enumObj) != 0) return;
+                var enumerator = (IMMDeviceEnumerator)enumObj;
+
+                IMMDevice device;
+                if (enumerator.GetDevice(deviceId, out device) != 0 || device == null) return;
+
+                Guid epvId = IID_IAudioEndpointVolume;
+                object epvObj;
+                if (device.Activate(ref epvId, 1, IntPtr.Zero, out epvObj) != 0 || epvObj == null) return;
+
+                var epv = (IAudioEndpointVolume)epvObj;
+                Guid ctx = Guid.Empty;
+                epv.SetMute(mute, ref ctx);
+            }
+            catch { }
+        }
+
+        public static bool GetMicMuteForDevice(string deviceId)
+        {
+            try
+            {
+                Guid clsid = CLSID_MMDeviceEnumerator;
+                Guid iid = IID_IMMDeviceEnumerator;
+                object enumObj;
+                if (Ole32.CoCreateInstance(ref clsid, IntPtr.Zero, 1, ref iid, out enumObj) != 0) return false;
+                var enumerator = (IMMDeviceEnumerator)enumObj;
+
+                IMMDevice device;
+                if (enumerator.GetDevice(deviceId, out device) != 0 || device == null) return false;
+
+                Guid epvId = IID_IAudioEndpointVolume;
+                object epvObj;
+                if (device.Activate(ref epvId, 1, IntPtr.Zero, out epvObj) != 0 || epvObj == null) return false;
 
                 var epv = (IAudioEndpointVolume)epvObj;
                 bool muted;

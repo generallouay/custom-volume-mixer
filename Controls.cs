@@ -503,10 +503,14 @@ namespace VolumeMixer
                 ? (IsDanger ? Color.White : Theme.Accent)
                 : Theme.TextSecondary;
 
+            float fontSize = 10f;
+            FontStyle fontStyle = FontStyle.Bold;
+            if (Symbol == "\u2013") { fontSize = 13f; fontStyle = FontStyle.Regular; }
+            else if (Symbol == "\u2699") { fontSize = 14f; fontStyle = FontStyle.Regular; }
+
             using (var sf = new System.Drawing.StringFormat
             { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
-            using (var f = new Font("Segoe UI", Symbol == "\u2013" ? 13f : 10f,
-                                    Symbol == "\u2013" ? FontStyle.Regular : FontStyle.Bold))
+            using (var f = new Font("Segoe UI", fontSize, fontStyle))
                 g.DrawString(Symbol, f, new SolidBrush(fg),
                     new RectangleF(0, 0, Width, Height), sf);
         }
@@ -561,6 +565,81 @@ namespace VolumeMixer
             p.AddArc(r.Right - d, r.Bottom - d, d, d, 0, 90);
             p.AddArc(r.X, r.Bottom - d, d, d, 90, 90);
             p.CloseFigure(); return p;
+        }
+    }
+
+    // ─── Input device row (settings screen) ────────────────────────────────
+    public class InputDeviceRow : Panel
+    {
+        public string DeviceId { get; private set; }
+        public string DeviceName { get; private set; }
+        public bool IsChecked { get; set; }
+        public event Action<InputDeviceRow> CheckedChanged;
+
+        private bool _hover;
+        private const int ItemHeight = 48;
+
+        public InputDeviceRow(string deviceId, string deviceName, bool isChecked)
+        {
+            DeviceId = deviceId;
+            DeviceName = deviceName;
+            IsChecked = isChecked;
+            Height = ItemHeight;
+            Dock = DockStyle.Top;
+            BackColor = Theme.Surface;
+            Cursor = Cursors.Hand;
+            DoubleBuffered = true;
+
+            MouseEnter += (s, e) => { _hover = true; Invalidate(); };
+            MouseLeave += (s, e) => { _hover = false; Invalidate(); };
+            MouseClick += (s, e) =>
+            {
+                if (e.Button == MouseButtons.Left)
+                {
+                    IsChecked = !IsChecked;
+                    Invalidate();
+                    CheckedChanged?.Invoke(this);
+                }
+            };
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            bool chk = IsChecked;
+            Color bg = chk ? Theme.CheckedBg : (_hover ? Theme.SurfaceHover : Theme.Surface);
+            g.FillRectangle(new SolidBrush(bg), 0, 0, Width, Height);
+
+            if (chk)
+                g.FillRectangle(new SolidBrush(Theme.Accent), 0, 4, 3, Height - 8);
+
+            // Circle checkbox
+            int cx = 22, cy = Height / 2, cr = 9;
+            var cRect = new Rectangle(cx - cr, cy - cr, cr * 2, cr * 2);
+            if (chk)
+            {
+                g.FillEllipse(new SolidBrush(Theme.Accent), cRect);
+                using (var p2 = new Pen(Color.White, 2f) { LineJoin = LineJoin.Round, StartCap = LineCap.Round, EndCap = LineCap.Round })
+                    g.DrawLines(p2, new PointF[] {
+                        new PointF(cx - 4f, cy + 0.5f),
+                        new PointF(cx - 1f, cy + 3.5f),
+                        new PointF(cx + 4.5f, cy - 3f) });
+            }
+            else
+                g.DrawEllipse(new Pen(Theme.Border, 1.5f), cRect);
+
+            // Device name
+            int tx = cx + cr + 14;
+            var sf = new StringFormat { LineAlignment = StringAlignment.Center, Trimming = StringTrimming.EllipsisCharacter };
+            Color tc = chk ? Theme.TextPrimary : Theme.TextSecondary;
+            using (var itemFont = new Font("Segoe UI", 9.5f, FontStyle.Regular))
+                g.DrawString(DeviceName, itemFont, new SolidBrush(tc),
+                    new Rectangle(tx, 0, Width - tx - 16, Height), sf);
+
+            // Bottom separator
+            g.DrawLine(new Pen(Color.FromArgb(30, Theme.Border), 1), 10, Height - 1, Width - 10, Height - 1);
         }
     }
 

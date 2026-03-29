@@ -67,6 +67,15 @@ namespace VolumeMixer
         [FieldOffset(8)] public long longVal;
     }
 
+    public static class PropertyKeys
+    {
+        public static PROPERTYKEY PKEY_Device_FriendlyName = new PROPERTYKEY
+        {
+            fmtid = new Guid("a45c254e-df1c-4efd-8020-67d146a850e0"),
+            pid = 14
+        };
+    }
+
     [Guid("77AA99A0-1BD6-484F-8BC7-2C654C9A9B6F")]
     [InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]
     public interface IAudioSessionManager2

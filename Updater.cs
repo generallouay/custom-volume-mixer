@@ -28,7 +28,7 @@ namespace VolumeMixer
         private const string REG_SKIP_VER = "SkipUpdateVersion";
 
         // ── Current app version — bump this with every release ────────────────
-        public static readonly Version CurrentVersion = new Version(2, 0, 1);
+        public static readonly Version CurrentVersion = new Version(2, 0, 3);
 
         // Returns null if up to date, network error, or user said never.
         public static UpdateInfo CheckForUpdate()
