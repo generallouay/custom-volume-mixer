@@ -563,4 +563,64 @@ namespace VolumeMixer
             p.CloseFigure(); return p;
         }
     }
+
+    // ─── Mic status indicator (dot + LIVE / MUTED pill) ────────────────────
+    public class MicStatusIndicator : Control
+    {
+        private bool _muted;
+
+        public MicStatusIndicator()
+        {
+            SetStyle(ControlStyles.OptimizedDoubleBuffer |
+                     ControlStyles.UserPaint |
+                     ControlStyles.AllPaintingInWmPaint |
+                     ControlStyles.SupportsTransparentBackColor, true);
+            Size = new Size(70, 20);
+            BackColor = Color.Transparent;
+        }
+
+        public void SetMuted(bool muted)
+        {
+            if (_muted == muted) return;
+            _muted = muted;
+            Invalidate();
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            Graphics g = e.Graphics;
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+
+            Color dot = _muted ? Theme.MutedRed : Theme.ActiveDot;
+            Color pillBg = Color.FromArgb(50, dot);
+            string text = _muted ? "MUTED" : "LIVE";
+
+            Font f = new Font("Segoe UI", 7f, FontStyle.Bold);
+            SizeF ts = g.MeasureString(text, f);
+            int dotR = 4;
+            int pillW = dotR * 2 + 6 + (int)ts.Width + 16;
+            int pillH = Height;
+
+            // Pill background
+            using (var path = new GraphicsPath())
+            {
+                int d = pillH;
+                var rect = new Rectangle(0, 0, pillW, pillH);
+                path.AddArc(rect.X, rect.Y, d, d, 90, 180);
+                path.AddArc(rect.Right - d, rect.Y, d, d, 270, 180);
+                path.CloseFigure();
+                g.FillPath(new SolidBrush(pillBg), path);
+            }
+
+            // Dot
+            int dy = pillH / 2 - dotR;
+            g.FillEllipse(new SolidBrush(dot), 8, dy, dotR * 2, dotR * 2);
+            if (!_muted)
+                g.DrawEllipse(new Pen(Color.FromArgb(60, dot), 1.2f), 6, dy - 2, dotR * 2 + 4, dotR * 2 + 4);
+
+            // Text
+            var sf = new StringFormat { LineAlignment = StringAlignment.Center };
+            g.DrawString(text, f, new SolidBrush(dot), 8 + dotR * 2 + 4, pillH / 2f, sf);
+        }
+    }
 }

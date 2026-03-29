@@ -35,6 +35,7 @@ namespace VolumeMixer
         private bool _isMuted = false;
         private bool _listeningKey = false;
         private bool _listeningMicKey = false;
+        private bool _loading = false;
 
         // Persisted checked process names — survives app disappearing and reappearing
         private HashSet<string> _checkedApps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -47,6 +48,7 @@ namespace VolumeMixer
         private MuteToggle _muteToggle;
         private AccentButton _setKeyBtn;
         private AccentButton _setMicKeyBtn;
+        private MicStatusIndicator _micStatus;
         private GhostButton _selectAllBtn;
         private GhostButton _clearBtn;
         private Label _emptyHint;
@@ -62,6 +64,7 @@ namespace VolumeMixer
             SetupTrayIcon();
             LoadPreferences();
             SyncSessions(force: true);
+            PollMicStatus();
             InstallHook();
             StartPolling();
             CheckForUpdateAsync();
@@ -88,7 +91,7 @@ namespace VolumeMixer
         {
             _pollTimer = new System.Windows.Forms.Timer();
             _pollTimer.Interval = 1000;
-            _pollTimer.Tick += (s, e) => SyncSessions(force: false);
+            _pollTimer.Tick += (s, e) => { SyncSessions(force: false); PollMicStatus(); };
             _pollTimer.Start();
         }
 
@@ -128,11 +131,18 @@ namespace VolumeMixer
             else _sessionList.BringToFront();
         }
 
+        private void PollMicStatus()
+        {
+            try { _micStatus.SetMuted(AudioManager.GetMicMute()); }
+            catch { }
+        }
+
         // ══════════════════════════════════════════════════════════════════════
         //  PREFERENCES PERSISTENCE
         // ══════════════════════════════════════════════════════════════════════
         private void SavePreferences()
         {
+            if (_loading) return;
             try
             {
                 using (var key = Registry.CurrentUser.CreateSubKey(REG_KEY))
@@ -153,18 +163,29 @@ namespace VolumeMixer
                 {
                     if (key == null) return;
 
+                    // Read all values first before applying (AssignHotkey calls
+                    // SavePreferences which would overwrite not-yet-loaded values)
+                    Keys loadedHotkey = Keys.None;
+                    Keys loadedMicHotkey = Keys.None;
+
                     var hotkeyVal = key.GetValue(REG_HOTKEY);
                     if (hotkeyVal != null)
                     {
-                        var loaded = (Keys)(int)hotkeyVal;
-                        if (loaded != Keys.None) AssignHotkey(loaded);
+                        int hkRaw;
+                        if (hotkeyVal is int) hkRaw = (int)hotkeyVal;
+                        else if (int.TryParse(hotkeyVal.ToString(), out hkRaw)) { }
+                        else hkRaw = 0;
+                        loadedHotkey = (Keys)hkRaw;
                     }
 
                     var micHotkeyVal = key.GetValue(REG_MIC_HOTKEY);
                     if (micHotkeyVal != null)
                     {
-                        var loaded = (Keys)(int)micHotkeyVal;
-                        if (loaded != Keys.None) AssignMicHotkey(loaded);
+                        int micRaw;
+                        if (micHotkeyVal is int) micRaw = (int)micHotkeyVal;
+                        else if (int.TryParse(micHotkeyVal.ToString(), out micRaw)) { }
+                        else micRaw = 0;
+                        loadedMicHotkey = (Keys)micRaw;
                     }
 
                     var checkedVal = key.GetValue(REG_CHECKED) as string;
@@ -172,6 +193,12 @@ namespace VolumeMixer
                         foreach (var name in checkedVal.Split(','))
                             if (!string.IsNullOrWhiteSpace(name))
                                 _checkedApps.Add(name.Trim());
+
+                    // Now apply — _loading flag prevents AssignHotkey from triggering SavePreferences
+                    _loading = true;
+                    if (loadedHotkey != Keys.None) AssignHotkey(loadedHotkey);
+                    if (loadedMicHotkey != Keys.None) AssignMicHotkey(loadedMicHotkey);
+                    _loading = false;
                 }
             }
             catch { }
@@ -299,21 +326,21 @@ namespace VolumeMixer
             listPanel.Controls.Add(_emptyHint);
 
             // ── BOTTOM PANEL ──────────────────────────────────────────────────
-            _bottomPanel = new Panel { Dock = DockStyle.Bottom, Height = 136, BackColor = Theme.Surface };
+            _bottomPanel = new Panel { Dock = DockStyle.Bottom, Height = 156, BackColor = Theme.Surface };
             _bottomPanel.Paint += (s, e) =>
                 e.Graphics.DrawLine(new System.Drawing.Pen(Theme.Border, 1), 0, 0, ((Control)s).Width, 0);
 
+            // Row 1: Two hotkey buttons side by side
             var hotkeyCap = new Label
             {
                 Text = "MUTE HOTKEY",
                 Font = new Font("Segoe UI", 7f, FontStyle.Bold),
                 ForeColor = Theme.TextSecondary,
                 BackColor = Color.Transparent,
-                AutoSize = true,
-                Location = new Point(16, 10)
+                AutoSize = true
             };
 
-            _setKeyBtn = new AccentButton { Text = "Click to set hotkey", Size = new Size(176, 32), Location = new Point(16, 26) };
+            _setKeyBtn = new AccentButton { Text = "Click to set hotkey", Height = 32 };
             _setKeyBtn.Click += SetKey_Click;
 
             var micCap = new Label
@@ -322,38 +349,27 @@ namespace VolumeMixer
                 Font = new Font("Segoe UI", 7f, FontStyle.Bold),
                 ForeColor = Theme.TextSecondary,
                 BackColor = Color.Transparent,
-                AutoSize = true,
-                Location = new Point(16, 64)
+                AutoSize = true
             };
 
-            _setMicKeyBtn = new AccentButton { Text = "Click to set hotkey", Size = new Size(176, 32), Location = new Point(16, 80) };
+            _setMicKeyBtn = new AccentButton { Text = "Click to set hotkey", Height = 32 };
             _setMicKeyBtn.Click += SetMicKey_Click;
 
-            // Label above the pill, both anchored to the right
+            _micStatus = new MicStatusIndicator();
+
+            // Row 2: Pause/resume toggle on left
             var toggleCap = new Label
             {
-                Text = "PAUSE/RESUME",
+                Text = "PAUSE / RESUME",
                 Font = new Font("Segoe UI", 7f, FontStyle.Bold),
                 ForeColor = Theme.TextSecondary,
                 BackColor = Color.Transparent,
-                AutoSize = true,
-                Anchor = AnchorStyles.Top | AnchorStyles.Right
+                AutoSize = true
             };
 
-            _muteToggle = new MuteToggle { Anchor = AnchorStyles.Top | AnchorStyles.Right };
+            _muteToggle = new MuteToggle();
             _muteToggle.SetState(false, animate: false);
             _muteToggle.Toggled += on => { /* just a setting, no action */ };
-
-            // Version label — below the pill, right-aligned
-            var verLabel = new Label
-            {
-                Text = "v" + Updater.CurrentVersion.ToString(3),
-                Font = new Font("Segoe UI", 7f),
-                ForeColor = Color.FromArgb(50, Theme.TextSecondary),
-                BackColor = Color.Transparent,
-                AutoSize = true,
-                Anchor = AnchorStyles.Top | AnchorStyles.Right
-            };
 
             var footerHint = new Label
             {
@@ -361,33 +377,56 @@ namespace VolumeMixer
                 Font = new Font("Segoe UI", 7.5f),
                 ForeColor = Color.FromArgb(55, Theme.TextSecondary),
                 BackColor = Color.Transparent,
-                AutoSize = true,
-                Location = new Point(16, 116),
-                Anchor = AnchorStyles.Bottom | AnchorStyles.Left
+                AutoSize = true
+            };
+
+            var verLabel = new Label
+            {
+                Text = "v" + Updater.CurrentVersion.ToString(3),
+                Font = new Font("Segoe UI", 7f),
+                ForeColor = Color.FromArgb(50, Theme.TextSecondary),
+                BackColor = Color.Transparent,
+                AutoSize = true
             };
 
             _bottomPanel.Controls.Add(hotkeyCap);
             _bottomPanel.Controls.Add(_setKeyBtn);
             _bottomPanel.Controls.Add(micCap);
             _bottomPanel.Controls.Add(_setMicKeyBtn);
+            _bottomPanel.Controls.Add(_micStatus);
             _bottomPanel.Controls.Add(toggleCap);
             _bottomPanel.Controls.Add(_muteToggle);
-            _bottomPanel.Controls.Add(verLabel);
             _bottomPanel.Controls.Add(footerHint);
+            _bottomPanel.Controls.Add(verLabel);
 
-            // Position the toggle + label flush right, updating on resize
-            Action layoutRight = () =>
+            // Responsive layout — reflows on resize
+            Action layoutBottom = () =>
             {
-                int rightEdge = _bottomPanel.Width - 16;
+                int w = _bottomPanel.Width;
+                int pad = 16;
+                int gap = 10;
+                int btnWidth = (w - pad * 2 - gap) / 2;
+
+                // Row 1: labels + mic status at far right of mic column
+                hotkeyCap.Location = new Point(pad, 18);
+                micCap.Location = new Point(pad + btnWidth + gap, 18);
+                _micStatus.Location = new Point(pad + btnWidth + gap + btnWidth - _micStatus.Width, 16);
+
+                // Row 1: buttons (extra gap from labels)
+                _setKeyBtn.SetBounds(pad, 46, btnWidth, 34);
+                _setMicKeyBtn.SetBounds(pad + btnWidth + gap, 46, btnWidth, 34);
+
+                // Row 2: toggle
+                toggleCap.Location = new Point(pad, 98);
                 toggleCap.Size = toggleCap.GetPreferredSize(Size.Empty);
+                _muteToggle.Location = new Point(pad + toggleCap.Width + 8, 95);
+
+                footerHint.Location = new Point(pad, _bottomPanel.Height - footerHint.Height - 4);
                 verLabel.Size = verLabel.GetPreferredSize(Size.Empty);
-                int blockLeft = rightEdge - Math.Max(_muteToggle.Width, Math.Max(toggleCap.Width, verLabel.Width));
-                toggleCap.Location = new Point(blockLeft, 16);
-                _muteToggle.Location = new Point(blockLeft, 36);
-                verLabel.Location = new Point(_bottomPanel.Width - verLabel.Width - 4, _bottomPanel.Height - verLabel.Height - 3);
+                verLabel.Location = new Point(w - verLabel.Width - 6, _bottomPanel.Height - verLabel.Height - 4);
             };
-            _bottomPanel.Resize += (s, e) => layoutRight();
-            _bottomPanel.HandleCreated += (s, e) => layoutRight();
+            _bottomPanel.Resize += (s, e) => layoutBottom();
+            _bottomPanel.HandleCreated += (s, e) => layoutBottom();
 
             // ── ASSEMBLE ──────────────────────────────────────────────────────
             var center = new Panel { Dock = DockStyle.Fill, BackColor = Theme.Background };
@@ -584,6 +623,7 @@ namespace VolumeMixer
         private void ToggleMicMute()
         {
             AudioManager.ToggleMicMute();
+            PollMicStatus();
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────
