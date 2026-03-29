@@ -176,7 +176,7 @@ namespace VolumeMixer
                         bool muted = false;
                         if (vol != null) vol.GetMute(out muted);
 
-                        // Use peak meter for instant active detection � no Windows debounce lag
+                        // Use peak meter for instant active detection � no Windows debounce lag
                         bool isActive = false;
                         var meter = ctrl as IAudioMeterInformation;
                         if (meter != null)
@@ -240,6 +240,62 @@ namespace VolumeMixer
             bool m;
             vol.GetMute(out m);
             return m;
+        }
+
+        // ── Microphone mute ────────────────────────────────────────────────
+        private static readonly Guid IID_IAudioEndpointVolume = new Guid("5CDF2C82-841E-4546-9722-0CF74078229A");
+
+        public static bool ToggleMicMute()
+        {
+            try
+            {
+                Guid clsid = CLSID_MMDeviceEnumerator;
+                Guid iid = IID_IMMDeviceEnumerator;
+                object enumObj;
+                if (Ole32.CoCreateInstance(ref clsid, IntPtr.Zero, 1, ref iid, out enumObj) != 0) return false;
+                var enumerator = (IMMDeviceEnumerator)enumObj;
+
+                IMMDevice capDevice;
+                // dataFlow=1 (eCapture), role=0 (eConsole)
+                if (enumerator.GetDefaultAudioEndpoint(1, 0, out capDevice) != 0 || capDevice == null) return false;
+
+                Guid epvId = IID_IAudioEndpointVolume;
+                object epvObj;
+                if (capDevice.Activate(ref epvId, 1, IntPtr.Zero, out epvObj) != 0 || epvObj == null) return false;
+
+                var epv = (IAudioEndpointVolume)epvObj;
+                bool muted;
+                epv.GetMute(out muted);
+                Guid ctx = Guid.Empty;
+                epv.SetMute(!muted, ref ctx);
+                return !muted; // returns new mute state
+            }
+            catch { return false; }
+        }
+
+        public static bool GetMicMute()
+        {
+            try
+            {
+                Guid clsid = CLSID_MMDeviceEnumerator;
+                Guid iid = IID_IMMDeviceEnumerator;
+                object enumObj;
+                if (Ole32.CoCreateInstance(ref clsid, IntPtr.Zero, 1, ref iid, out enumObj) != 0) return false;
+                var enumerator = (IMMDeviceEnumerator)enumObj;
+
+                IMMDevice capDevice;
+                if (enumerator.GetDefaultAudioEndpoint(1, 0, out capDevice) != 0 || capDevice == null) return false;
+
+                Guid epvId = IID_IAudioEndpointVolume;
+                object epvObj;
+                if (capDevice.Activate(ref epvId, 1, IntPtr.Zero, out epvObj) != 0 || epvObj == null) return false;
+
+                var epv = (IAudioEndpointVolume)epvObj;
+                bool muted;
+                epv.GetMute(out muted);
+                return muted;
+            }
+            catch { return false; }
         }
     }
 }

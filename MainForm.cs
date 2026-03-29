@@ -27,11 +27,14 @@ namespace VolumeMixer
         private const string REG_KEY = @"Software\VolumeMixer";
         private const string REG_HOTKEY = "Hotkey";
         private const string REG_CHECKED = "CheckedApps";
+        private const string REG_MIC_HOTKEY = "MicHotkey";
 
         // ── State ─────────────────────────────────────────────────────────────
         private Keys _hotkey = Keys.None;
+        private Keys _micHotkey = Keys.None;
         private bool _isMuted = false;
         private bool _listeningKey = false;
+        private bool _listeningMicKey = false;
 
         // Persisted checked process names — survives app disappearing and reappearing
         private HashSet<string> _checkedApps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -43,6 +46,7 @@ namespace VolumeMixer
         private SessionListPanel _sessionList;
         private MuteToggle _muteToggle;
         private AccentButton _setKeyBtn;
+        private AccentButton _setMicKeyBtn;
         private GhostButton _selectAllBtn;
         private GhostButton _clearBtn;
         private Label _emptyHint;
@@ -134,6 +138,7 @@ namespace VolumeMixer
                 using (var key = Registry.CurrentUser.CreateSubKey(REG_KEY))
                 {
                     key.SetValue(REG_HOTKEY, (int)_hotkey, RegistryValueKind.DWord);
+                    key.SetValue(REG_MIC_HOTKEY, (int)_micHotkey, RegistryValueKind.DWord);
                     key.SetValue(REG_CHECKED, string.Join(",", _checkedApps), RegistryValueKind.String);
                 }
             }
@@ -153,6 +158,13 @@ namespace VolumeMixer
                     {
                         var loaded = (Keys)(int)hotkeyVal;
                         if (loaded != Keys.None) AssignHotkey(loaded);
+                    }
+
+                    var micHotkeyVal = key.GetValue(REG_MIC_HOTKEY);
+                    if (micHotkeyVal != null)
+                    {
+                        var loaded = (Keys)(int)micHotkeyVal;
+                        if (loaded != Keys.None) AssignMicHotkey(loaded);
                     }
 
                     var checkedVal = key.GetValue(REG_CHECKED) as string;
@@ -287,13 +299,13 @@ namespace VolumeMixer
             listPanel.Controls.Add(_emptyHint);
 
             // ── BOTTOM PANEL ──────────────────────────────────────────────────
-            _bottomPanel = new Panel { Dock = DockStyle.Bottom, Height = 100, BackColor = Theme.Surface };
+            _bottomPanel = new Panel { Dock = DockStyle.Bottom, Height = 136, BackColor = Theme.Surface };
             _bottomPanel.Paint += (s, e) =>
                 e.Graphics.DrawLine(new System.Drawing.Pen(Theme.Border, 1), 0, 0, ((Control)s).Width, 0);
 
             var hotkeyCap = new Label
             {
-                Text = "HOTKEY",
+                Text = "MUTE HOTKEY",
                 Font = new Font("Segoe UI", 7f, FontStyle.Bold),
                 ForeColor = Theme.TextSecondary,
                 BackColor = Color.Transparent,
@@ -301,8 +313,21 @@ namespace VolumeMixer
                 Location = new Point(16, 10)
             };
 
-            _setKeyBtn = new AccentButton { Text = "Click to set hotkey", Size = new Size(176, 36), Location = new Point(16, 26) };
+            _setKeyBtn = new AccentButton { Text = "Click to set hotkey", Size = new Size(176, 32), Location = new Point(16, 26) };
             _setKeyBtn.Click += SetKey_Click;
+
+            var micCap = new Label
+            {
+                Text = "MIC MUTE",
+                Font = new Font("Segoe UI", 7f, FontStyle.Bold),
+                ForeColor = Theme.TextSecondary,
+                BackColor = Color.Transparent,
+                AutoSize = true,
+                Location = new Point(16, 64)
+            };
+
+            _setMicKeyBtn = new AccentButton { Text = "Click to set hotkey", Size = new Size(176, 32), Location = new Point(16, 80) };
+            _setMicKeyBtn.Click += SetMicKey_Click;
 
             // Label above the pill, both anchored to the right
             var toggleCap = new Label
@@ -332,17 +357,19 @@ namespace VolumeMixer
 
             var footerHint = new Label
             {
-                Text = "Global hotkey works even when minimized",
+                Text = "Global hotkeys work even when minimized",
                 Font = new Font("Segoe UI", 7.5f),
                 ForeColor = Color.FromArgb(55, Theme.TextSecondary),
                 BackColor = Color.Transparent,
                 AutoSize = true,
-                Location = new Point(16, 80),
+                Location = new Point(16, 116),
                 Anchor = AnchorStyles.Bottom | AnchorStyles.Left
             };
 
             _bottomPanel.Controls.Add(hotkeyCap);
             _bottomPanel.Controls.Add(_setKeyBtn);
+            _bottomPanel.Controls.Add(micCap);
+            _bottomPanel.Controls.Add(_setMicKeyBtn);
             _bottomPanel.Controls.Add(toggleCap);
             _bottomPanel.Controls.Add(_muteToggle);
             _bottomPanel.Controls.Add(verLabel);
@@ -409,18 +436,34 @@ namespace VolumeMixer
         // ══════════════════════════════════════════════════════════════════════
         private void SetKey_Click(object sender, EventArgs e)
         {
+            _listeningMicKey = false;
+            CancelMicKeyListen();
             _listeningKey = true;
             _setKeyBtn.Text = "Press any key...";
             _setKeyBtn.Focus();
         }
 
+        private void SetMicKey_Click(object sender, EventArgs e)
+        {
+            _listeningKey = false;
+            CancelKeyListen();
+            _listeningMicKey = true;
+            _setMicKeyBtn.Text = "Press any key...";
+            _setMicKeyBtn.Focus();
+        }
+
         protected override bool ProcessCmdKey(ref Message msg, Keys keyData)
         {
+            Keys key = keyData & Keys.KeyCode;
             if (_listeningKey)
             {
-                Keys key = keyData & Keys.KeyCode;
                 if (key == Keys.Escape) { CancelKeyListen(); return true; }
                 if (key != Keys.None) { AssignHotkey(key); return true; }
+            }
+            if (_listeningMicKey)
+            {
+                if (key == Keys.Escape) { CancelMicKeyListen(); return true; }
+                if (key != Keys.None) { AssignMicHotkey(key); return true; }
             }
             return base.ProcessCmdKey(ref msg, keyData);
         }
@@ -433,10 +476,24 @@ namespace VolumeMixer
             SavePreferences();
         }
 
+        private void AssignMicHotkey(Keys key)
+        {
+            _micHotkey = key;
+            _listeningMicKey = false;
+            _setMicKeyBtn.Text = "Mic Mute:  " + key.ToString();
+            SavePreferences();
+        }
+
         private void CancelKeyListen()
         {
             _listeningKey = false;
             _setKeyBtn.Text = _hotkey == Keys.None ? "Click to set hotkey" : "Hotkey:  " + _hotkey.ToString();
+        }
+
+        private void CancelMicKeyListen()
+        {
+            _listeningMicKey = false;
+            _setMicKeyBtn.Text = _micHotkey == Keys.None ? "Click to set hotkey" : "Mic Mute:  " + _micHotkey.ToString();
         }
 
         // ══════════════════════════════════════════════════════════════════════
@@ -513,13 +570,20 @@ namespace VolumeMixer
 
         private IntPtr HookCallback(int n, IntPtr wp, IntPtr lp)
         {
-            if (n >= 0 && wp == (IntPtr)WM_KEYDOWN && !_listeningKey && _hotkey != Keys.None)
+            if (n >= 0 && wp == (IntPtr)WM_KEYDOWN && !_listeningKey && !_listeningMicKey)
             {
                 int vk = Marshal.ReadInt32(lp);
-                if ((Keys)vk == (_hotkey & Keys.KeyCode))
+                if (_hotkey != Keys.None && (Keys)vk == (_hotkey & Keys.KeyCode))
                     BeginInvoke(new MethodInvoker(ToggleMute));
+                if (_micHotkey != Keys.None && (Keys)vk == (_micHotkey & Keys.KeyCode))
+                    BeginInvoke(new MethodInvoker(ToggleMicMute));
             }
             return CallNextHookEx(_hookHandle, n, wp, lp);
+        }
+
+        private void ToggleMicMute()
+        {
+            AudioManager.ToggleMicMute();
         }
 
         // ── Helpers ───────────────────────────────────────────────────────────
