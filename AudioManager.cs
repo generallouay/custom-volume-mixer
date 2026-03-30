@@ -14,6 +14,7 @@ namespace VolumeMixer
         public bool IsActive { get; set; }  // true = audio currently flowing (peak > 0)
         public bool IsCheckedByUser { get; set; }
         public object RawSession { get; set; }
+        public List<object> AdditionalRawSessions { get; set; } = new List<object>();
 
         public string FriendlyName
         {
@@ -208,11 +209,21 @@ namespace VolumeMixer
                         };
 
                         // Dedup: active wins; higher PID breaks ties
+                        // All extra sessions are stored so they can all be muted together
                         if (best.TryGetValue(processName, out var existing))
                         {
                             bool newWins = (isActive && !existing.IsActive) ||
                                           (isActive == existing.IsActive && (int)pid > existing.ProcessId);
-                            if (newWins) best[processName] = info;
+                            if (newWins)
+                            {
+                                info.AdditionalRawSessions.AddRange(existing.AdditionalRawSessions);
+                                info.AdditionalRawSessions.Add(existing.RawSession);
+                                best[processName] = info;
+                            }
+                            else
+                            {
+                                existing.AdditionalRawSessions.Add(ctrl);
+                            }
                         }
                         else
                         {
@@ -232,10 +243,16 @@ namespace VolumeMixer
 
         public static void SetMute(AudioSessionInfo session, bool mute)
         {
-            var vol = session.GetVolume();
-            if (vol == null) return;
             Guid empty = Guid.Empty;
-            vol.SetMute(mute, ref empty);
+            var vol = session.GetVolume();
+            if (vol != null)
+                vol.SetMute(mute, ref empty);
+            // Also mute any extra sessions (e.g. Discord voice call vs. notification sessions)
+            foreach (var raw in session.AdditionalRawSessions)
+            {
+                var extra = raw as ISimpleAudioVolume;
+                if (extra != null) extra.SetMute(mute, ref empty);
+            }
             session.IsMuted = mute;
         }
 
@@ -245,6 +262,7 @@ namespace VolumeMixer
             if (vol == null) return session.IsMuted;
             bool m;
             vol.GetMute(out m);
+            // If primary is unmuted, that's enough to consider the app unmuted
             return m;
         }
 
