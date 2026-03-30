@@ -29,6 +29,9 @@ namespace VolumeMixer
         private const string REG_CHECKED = "CheckedApps";
         private const string REG_MIC_HOTKEY = "MicHotkey";
         private const string REG_INPUT_DEVICES = "SelectedInputDevices";
+        private const string REG_START_WITH_WINDOWS = "StartWithWindows";
+        private const string RUN_REG_KEY = @"Software\Microsoft\Windows\CurrentVersion\Run";
+        private const string APP_RUN_NAME = "Volume Mixer";
 
         // ── State ─────────────────────────────────────────────────────────────
         private Keys _hotkey = Keys.None;
@@ -38,6 +41,7 @@ namespace VolumeMixer
         private bool _listeningKey = false;
         private bool _listeningMicKey = false;
         private bool _loading = false;
+        private bool _startWithWindows = true;
 
         // Persisted checked process names — survives app disappearing and reappearing
         private HashSet<string> _checkedApps = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -176,6 +180,23 @@ namespace VolumeMixer
                     key.SetValue(REG_MIC_HOTKEY, (int)_micHotkey, RegistryValueKind.DWord);
                     key.SetValue(REG_CHECKED, string.Join(",", _checkedApps), RegistryValueKind.String);
                     key.SetValue(REG_INPUT_DEVICES, string.Join("|", _selectedInputDevices), RegistryValueKind.String);
+                    key.SetValue(REG_START_WITH_WINDOWS, _startWithWindows ? 1 : 0, RegistryValueKind.DWord);
+                }
+            }
+            catch { }
+        }
+
+        private void SetStartWithWindows(bool enable)
+        {
+            try
+            {
+                using (var runKey = Registry.CurrentUser.OpenSubKey(RUN_REG_KEY, true))
+                {
+                    if (runKey == null) return;
+                    if (enable)
+                        runKey.SetValue(APP_RUN_NAME, Application.ExecutablePath);
+                    else
+                        runKey.DeleteValue(APP_RUN_NAME, false);
                 }
             }
             catch { }
@@ -183,11 +204,12 @@ namespace VolumeMixer
 
         private void LoadPreferences()
         {
+            bool startWithWinFound = false;
             try
             {
                 using (var key = Registry.CurrentUser.OpenSubKey(REG_KEY))
                 {
-                    if (key == null) return;
+                    if (key == null) { goto ApplyStartupDefault; }
 
                     // Read all values first before applying (AssignHotkey calls
                     // SavePreferences which would overwrite not-yet-loaded values)
@@ -226,6 +248,17 @@ namespace VolumeMixer
                             if (!string.IsNullOrWhiteSpace(id))
                                 _selectedInputDevices.Add(id.Trim());
 
+                    var swwVal = key.GetValue(REG_START_WITH_WINDOWS);
+                    if (swwVal != null)
+                    {
+                        int swwRaw;
+                        if (swwVal is int) swwRaw = (int)swwVal;
+                        else if (int.TryParse(swwVal.ToString(), out swwRaw)) { }
+                        else swwRaw = 1;
+                        _startWithWindows = swwRaw != 0;
+                        startWithWinFound = true;
+                    }
+
                     // Now apply — _loading flag prevents AssignHotkey from triggering SavePreferences
                     _loading = true;
                     if (loadedHotkey != Keys.None) AssignHotkey(loadedHotkey);
@@ -234,6 +267,14 @@ namespace VolumeMixer
                 }
             }
             catch { }
+
+            ApplyStartupDefault:
+            if (!startWithWinFound)
+            {
+                _startWithWindows = true;
+                SetStartWithWindows(true);
+                SavePreferences();
+            }
         }
 
         // ══════════════════════════════════════════════════════════════════════
@@ -725,7 +766,32 @@ namespace VolumeMixer
                 deviceList.Controls.Add(noDevLbl);
             }
 
+            // ── Start with Windows ──────────────────────────────────────────────
+            var startupPanel = new Panel { Dock = DockStyle.Top, Height = 44, BackColor = Theme.Background };
+            startupPanel.Paint += (s, e) =>
+                e.Graphics.DrawLine(new System.Drawing.Pen(Theme.Border, 1),
+                    0, ((Control)s).Height - 1, ((Control)s).Width, ((Control)s).Height - 1);
+
+            var startupChk = new CheckBox
+            {
+                Text = "Start with Windows",
+                Font = new Font("Segoe UI", 9f),
+                ForeColor = Theme.TextPrimary,
+                BackColor = Color.Transparent,
+                Checked = _startWithWindows,
+                AutoSize = true,
+                Location = new Point(16, 12)
+            };
+            startupChk.CheckedChanged += (s, e) =>
+            {
+                _startWithWindows = startupChk.Checked;
+                SetStartWithWindows(_startWithWindows);
+                SavePreferences();
+            };
+            startupPanel.Controls.Add(startupChk);
+
             _settingsPanel.Controls.Add(deviceList);
+            _settingsPanel.Controls.Add(startupPanel);
             _settingsPanel.Controls.Add(descPanel);
             _settingsPanel.Controls.Add(header);
         }

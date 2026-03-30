@@ -9,7 +9,11 @@
       "Read(//c/Program Files \\(x86\\)/**)",
       "Bash(command -v gh.exe)",
       "Bash(where gh:*)",
-      "Bash(grep -E \"\\\\.\\(xaml|designer|resx\\)$\")"
+      "Bash(grep -E \"\\\\.\\(xaml|designer|resx\\)$\")",
+      "Bash(dotnet build:*)",
+      "Bash(\"G:\\\\Program Files\\\\Microsoft Visual Studio\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\" \"C:\\\\Users\\\\maste\\\\source\\\\repos\\\\generallouay\\\\custom-volume-mixer\\\\Volume Mixer.csproj\" /p:Configuration=Debug /v:minimal)",
+      "Bash(cmd /c \"\"\"G:\\\\Program Files\\\\Microsoft Visual Studio\\\\Community\\\\MSBuild\\\\Current\\\\Bin\\\\MSBuild.exe\"\" \"\"C:\\\\Users\\\\maste\\\\source\\\\repos\\\\generallouay\\\\custom-volume-mixer\\\\Volume Mixer.csproj\"\" /p:Configuration=Debug /v:minimal > C:\\\\Users\\\\maste\\\\build_output.txt 2>&1\")",
+      "Read(//c/Users/maste/**)"
     ]
   }
 }

@@ -1,0 +1,1 @@
+Update code -> Update version in Updater.cs -> Update version in .iss -> save .iss -> compile .iss -> push to repo (for own good) and draft new release (new release does the real update for users) upload compiled from installer-output
