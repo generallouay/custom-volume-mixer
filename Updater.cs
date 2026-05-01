@@ -27,8 +27,7 @@ namespace VolumeMixer
         private const string REG_KEY = @"Software\VolumeMixer";
         private const string REG_SKIP_VER = "SkipUpdateVersion";
 
-        // ── Current app version — bump this with every release ────────────────
-        public static readonly Version CurrentVersion = new Version(2, 0, 5);
+        public static readonly Version CurrentVersion = Assembly.GetExecutingAssembly().GetName().Version;
 
         // Returns null if up to date, network error, or user said never.
         public static UpdateInfo CheckForUpdate()
