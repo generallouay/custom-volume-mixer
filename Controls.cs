@@ -779,4 +779,47 @@ namespace VolumeMixer
             Invalidate();
         }
     }
+
+    // ── Dark-themed tray context menu renderer ────────────────────────────────
+    public class DarkMenuRenderer : ToolStripProfessionalRenderer
+    {
+        public DarkMenuRenderer() : base(new DarkMenuColorTable()) { }
+
+        protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e)
+        {
+            e.Graphics.FillRectangle(new SolidBrush(Theme.Surface), e.AffectedBounds);
+        }
+
+        protected override void OnRenderMenuItemBackground(ToolStripItemRenderEventArgs e)
+        {
+            var color = e.Item.Selected ? Theme.SurfaceHover : Theme.Surface;
+            e.Graphics.FillRectangle(new SolidBrush(color), new Rectangle(Point.Empty, e.Item.Size));
+        }
+
+        protected override void OnRenderSeparator(ToolStripSeparatorRenderEventArgs e)
+        {
+            int y = e.Item.Height / 2;
+            using (var pen = new System.Drawing.Pen(Theme.Border, 1))
+                e.Graphics.DrawLine(pen, 4, y, e.Item.Width - 4, y);
+        }
+
+        protected override void OnRenderItemText(ToolStripItemTextRenderEventArgs e)
+        {
+            e.TextColor = e.Item.Enabled ? Theme.TextPrimary : Theme.TextSecondary;
+            base.OnRenderItemText(e);
+        }
+    }
+
+    public class DarkMenuColorTable : ProfessionalColorTable
+    {
+        public override Color MenuBorder => Theme.Border;
+        public override Color MenuItemBorder => Color.Transparent;
+        public override Color MenuItemSelected => Theme.SurfaceHover;
+        public override Color MenuItemSelectedGradientBegin => Theme.SurfaceHover;
+        public override Color MenuItemSelectedGradientEnd => Theme.SurfaceHover;
+        public override Color ToolStripDropDownBackground => Theme.Surface;
+        public override Color ImageMarginGradientBegin => Theme.Surface;
+        public override Color ImageMarginGradientMiddle => Theme.Surface;
+        public override Color ImageMarginGradientEnd => Theme.Surface;
+    }
 }

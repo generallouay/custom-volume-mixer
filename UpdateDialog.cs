@@ -24,7 +24,7 @@ namespace VolumeMixer
         private void BuildUI()
         {
             Text = "Update Available";
-            Size = new Size(380, 280);
+            Size = new Size(380, 360);
             FormBorderStyle = FormBorderStyle.None;
             StartPosition = FormStartPosition.CenterScreen;
             BackColor = Theme.Surface;
@@ -72,8 +72,8 @@ namespace VolumeMixer
             string rawNotes = StripMarkdown(_info.ReleaseNotes);
             string notes = string.IsNullOrWhiteSpace(rawNotes)
                 ? "No release notes provided."
-                : rawNotes.Length > 200
-                    ? rawNotes.Substring(0, 197) + "..."
+                : rawNotes.Length > 500
+                    ? rawNotes.Substring(0, 497) + "..."
                     : rawNotes;
 
             var notesBox = new Label
@@ -83,14 +83,14 @@ namespace VolumeMixer
                 ForeColor = Color.FromArgb(100, 100, 128),
                 BackColor = Theme.Background,
                 Location = new Point(20, 82),
-                Size = new Size(340, 66),
+                Size = new Size(340, 148),
                 Padding = new Padding(8),
             };
 
             // ── Progress bar (hidden until download starts) ───────────────────
             var progressBar = new ProgressBarFlat
             {
-                Location = new Point(20, 158),
+                Location = new Point(20, 240),
                 Size = new Size(340, 4),
                 Visible = false,
                 Value = 0
@@ -103,7 +103,7 @@ namespace VolumeMixer
                 ForeColor = Theme.TextSecondary,
                 BackColor = Color.Transparent,
                 AutoSize = true,
-                Location = new Point(20, 166),
+                Location = new Point(20, 248),
                 Visible = false
             };
 
@@ -112,14 +112,14 @@ namespace VolumeMixer
             {
                 Text = "Update Now",
                 Size = new Size(120, 34),
-                Location = new Point(20, 226)
+                Location = new Point(20, 306)
             };
 
             var ignoreBtn = new GhostButton
             {
                 Text = "Ignore",
                 Size = new Size(80, 34),
-                Location = new Point(150, 226)
+                Location = new Point(150, 306)
             };
             ignoreBtn.Click += (s, e) => Close();
 
@@ -127,7 +127,7 @@ namespace VolumeMixer
             {
                 Text = "Never ask again",
                 Size = new Size(126, 34),
-                Location = new Point(238, 226)
+                Location = new Point(238, 306)
             };
             neverBtn.Click += (s, e) =>
             {

@@ -22,6 +22,15 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
+      - name: Stamp version into AssemblyInfo.cs
+        shell: pwsh
+        run: |
+          $ver = "${{ env.VERSION }}.0"
+          (Get-Content Properties\AssemblyInfo.cs) `
+            -replace 'AssemblyVersion\("[\d\.]+"\)',     "AssemblyVersion(`"$ver`")" `
+            -replace 'AssemblyFileVersion\("[\d\.]+"\)', "AssemblyFileVersion(`"$ver`")" |
+          Set-Content Properties\AssemblyInfo.cs
+
       - name: Build
         run: |
           msbuild "Volume Mixer.csproj" `

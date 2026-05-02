@@ -364,7 +364,7 @@ namespace VolumeMixer
                 IsDanger = false,
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
-            closeBtn.Click += (s, e) => { _reallyClosing = true; Application.Exit(); };
+            closeBtn.Click += (s, e) => { _reallyClosing = true; Close(); };
 
             var minimizeBtn = new TitleBarButton("–")
             {
@@ -958,8 +958,9 @@ namespace VolumeMixer
             showItem.Click += (s, e) => ShowFromTray();
 
             var exitItem = new ToolStripMenuItem("Exit");
-            exitItem.Click += (s, e) => { _reallyClosing = true; Application.Exit(); };
+            exitItem.Click += (s, e) => { _reallyClosing = true; Close(); };
 
+            menu.Renderer = new DarkMenuRenderer();
             menu.Items.Add(showItem);
             menu.Items.Add(new ToolStripSeparator());
             menu.Items.Add(exitItem);
@@ -1122,7 +1123,7 @@ namespace VolumeMixer
             }
             _pollTimer?.Stop();
             _trayIcon?.Dispose();
-            if (_overlay != null) { _overlay.Close(); _overlay.Dispose(); _overlay = null; }
+            if (_overlay != null) { _overlay.Close(); _overlay = null; }
             if (_hookHandle != IntPtr.Zero) UnhookWindowsHookEx(_hookHandle);
             base.OnFormClosing(e);
         }
