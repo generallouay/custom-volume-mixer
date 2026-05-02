@@ -33,7 +33,7 @@ jobs:
           restore-keys: nuget-
 
       - name: Restore NuGet packages
-        run: nuget restore "Volume Mixer.csproj"
+        run: nuget restore "Volume Mixer.csproj" -PackagesDirectory packages
 
       - name: Build
         run: |
