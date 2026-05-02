@@ -702,4 +702,81 @@ namespace VolumeMixer
             g.DrawString(text, f, new SolidBrush(dot), 8 + dotR * 2 + 4, pillH / 2f, sf);
         }
     }
+
+    // ── Dark-themed ComboBox ──────────────────────────────────────────────────
+    public class DarkComboBox : ComboBox
+    {
+        public DarkComboBox()
+        {
+            DrawMode = DrawMode.OwnerDrawFixed;
+            FlatStyle = FlatStyle.Flat;
+            BackColor = Theme.Surface;
+            ForeColor = Theme.TextPrimary;
+            Font = new Font("Segoe UI", 9f);
+            ItemHeight = 22;
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            base.WndProc(ref m);
+            if (m.Msg != 0xF) return; // WM_PAINT only
+
+            using (var g = Graphics.FromHwnd(Handle))
+            {
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                var r = new Rectangle(0, 0, Width - 1, Height - 1);
+
+                g.FillRectangle(new SolidBrush(Theme.Surface), r);
+
+                string text = SelectedIndex >= 0 && SelectedIndex < Items.Count
+                    ? Items[SelectedIndex].ToString() : Text;
+                using (var brush = new SolidBrush(Theme.TextPrimary))
+                {
+                    var sf = new StringFormat
+                    {
+                        LineAlignment = StringAlignment.Center,
+                        Trimming = StringTrimming.EllipsisCharacter
+                    };
+                    g.DrawString(text, Font, brush, new RectangleF(7, 0, r.Width - 26, Height), sf);
+                }
+
+                // Arrow button area
+                int btnW = 22;
+                g.FillRectangle(new SolidBrush(Theme.Surface), r.Right - btnW + 1, 1, btnW - 2, Height - 2);
+
+                // Arrow glyph
+                int cx = r.Right - btnW / 2;
+                int cy = Height / 2;
+                g.FillPolygon(new SolidBrush(Theme.TextSecondary), new Point[]
+                {
+                    new Point(cx - 4, cy - 2),
+                    new Point(cx + 4, cy - 2),
+                    new Point(cx,     cy + 3)
+                });
+
+                // Border
+                g.DrawRectangle(new Pen(Theme.Border, 1f), r);
+            }
+        }
+
+        protected override void OnDrawItem(DrawItemEventArgs e)
+        {
+            if (e.Index < 0) return;
+            bool sel = (e.State & DrawItemState.Selected) != 0;
+            e.Graphics.FillRectangle(new SolidBrush(sel ? Theme.SurfaceHover : Theme.Surface), e.Bounds);
+            string text = Items[e.Index].ToString();
+            using (var brush = new SolidBrush(Theme.TextPrimary))
+            {
+                var sf = new StringFormat { LineAlignment = StringAlignment.Center };
+                e.Graphics.DrawString(text, Font, brush,
+                    new RectangleF(e.Bounds.X + 7, e.Bounds.Y, e.Bounds.Width - 14, e.Bounds.Height), sf);
+            }
+        }
+
+        protected override void OnSelectedIndexChanged(EventArgs e)
+        {
+            base.OnSelectedIndexChanged(e);
+            Invalidate();
+        }
+    }
 }

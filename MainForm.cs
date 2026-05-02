@@ -30,6 +30,11 @@ namespace VolumeMixer
         private const string REG_MIC_HOTKEY = "MicHotkey";
         private const string REG_INPUT_DEVICES = "SelectedInputDevices";
         private const string REG_START_WITH_WINDOWS = "StartWithWindows";
+        private const string REG_OVERLAY_ENABLED  = "OverlayEnabled";
+        private const string REG_OVERLAY_CORNER   = "OverlayCorner";
+        private const string REG_OVERLAY_MONITOR  = "OverlayMonitor";
+        private const string REG_OVERLAY_OFFSET_X = "OverlayOffsetX";
+        private const string REG_OVERLAY_OFFSET_Y = "OverlayOffsetY";
         private const string RUN_REG_KEY = @"Software\Microsoft\Windows\CurrentVersion\Run";
         private const string APP_RUN_NAME = "Volume Mixer";
 
@@ -66,6 +71,14 @@ namespace VolumeMixer
         private Panel _settingsPanel;
         private bool _settingsVisible = false;
 
+        // ── Overlay ───────────────────────────────────────────────────────────
+        private OverlayForm _overlay;
+        private bool _overlayEnabled = false;
+        private OverlayCorner _overlayCorner = OverlayCorner.BottomRight;
+        private int _overlayMonitor = 0;
+        private int _overlayOffsetX = 16, _overlayOffsetY = 16;
+        private bool _micMuted = false;
+
         public MainForm()
         {
             BuildUI();
@@ -76,6 +89,7 @@ namespace VolumeMixer
             InstallHook();
             StartPolling();
             CheckForUpdateAsync();
+            ApplyOverlaySetting();
         }
 
         private void CheckForUpdateAsync()
@@ -156,14 +170,17 @@ namespace VolumeMixer
                             if (!AudioManager.GetMicMuteForDevice(d.Id)) { allMuted = false; break; }
                         }
                     }
-                    _micStatus.SetMuted(anyFound && allMuted);
+                    _micMuted = anyFound && allMuted;
+                    _micStatus.SetMuted(_micMuted);
                 }
                 else
                 {
-                    _micStatus.SetMuted(AudioManager.GetMicMute());
+                    _micMuted = AudioManager.GetMicMute();
+                    _micStatus.SetMuted(_micMuted);
                 }
             }
             catch { }
+            UpdateOverlay();
         }
 
         // ══════════════════════════════════════════════════════════════════════
@@ -181,6 +198,11 @@ namespace VolumeMixer
                     key.SetValue(REG_CHECKED, string.Join(",", _checkedApps), RegistryValueKind.String);
                     key.SetValue(REG_INPUT_DEVICES, string.Join("|", _selectedInputDevices), RegistryValueKind.String);
                     key.SetValue(REG_START_WITH_WINDOWS, _startWithWindows ? 1 : 0, RegistryValueKind.DWord);
+                    key.SetValue(REG_OVERLAY_ENABLED,  _overlayEnabled  ? 1 : 0, RegistryValueKind.DWord);
+                    key.SetValue(REG_OVERLAY_CORNER,   (int)_overlayCorner,       RegistryValueKind.DWord);
+                    key.SetValue(REG_OVERLAY_MONITOR,  _overlayMonitor,           RegistryValueKind.DWord);
+                    key.SetValue(REG_OVERLAY_OFFSET_X, _overlayOffsetX,           RegistryValueKind.DWord);
+                    key.SetValue(REG_OVERLAY_OFFSET_Y, _overlayOffsetY,           RegistryValueKind.DWord);
                 }
             }
             catch { }
@@ -259,6 +281,18 @@ namespace VolumeMixer
                         startWithWinFound = true;
                     }
 
+                    // Overlay settings
+                    var ovEnabledVal = key.GetValue(REG_OVERLAY_ENABLED);
+                    if (ovEnabledVal != null) { int r; _overlayEnabled = ((ovEnabledVal is int) ? (int)ovEnabledVal : int.TryParse(ovEnabledVal.ToString(), out r) ? r : 0) != 0; }
+                    var ovCornerVal = key.GetValue(REG_OVERLAY_CORNER);
+                    if (ovCornerVal != null) { int r; _overlayCorner = (OverlayCorner)((ovCornerVal is int) ? (int)ovCornerVal : int.TryParse(ovCornerVal.ToString(), out r) ? r : 3); }
+                    var ovMonitorVal = key.GetValue(REG_OVERLAY_MONITOR);
+                    if (ovMonitorVal != null) { int r; _overlayMonitor = (ovMonitorVal is int) ? (int)ovMonitorVal : int.TryParse(ovMonitorVal.ToString(), out r) ? r : 0; }
+                    var ovOffXVal = key.GetValue(REG_OVERLAY_OFFSET_X);
+                    if (ovOffXVal != null) { int r; _overlayOffsetX = (ovOffXVal is int) ? (int)ovOffXVal : int.TryParse(ovOffXVal.ToString(), out r) ? r : 16; }
+                    var ovOffYVal = key.GetValue(REG_OVERLAY_OFFSET_Y);
+                    if (ovOffYVal != null) { int r; _overlayOffsetY = (ovOffYVal is int) ? (int)ovOffYVal : int.TryParse(ovOffYVal.ToString(), out r) ? r : 16; }
+
                     // Now apply — _loading flag prevents AssignHotkey from triggering SavePreferences
                     _loading = true;
                     if (loadedHotkey != Keys.None) AssignHotkey(loadedHotkey);
@@ -316,7 +350,7 @@ namespace VolumeMixer
 
             var subtitleLbl = new Label
             {
-                Text = "Select apps  \u00b7  set a hotkey  \u00b7  toggle mute",
+                Text = "Select apps  ·  set a hotkey  ·  toggle mute",
                 Font = new Font("Segoe UI", 8f),
                 ForeColor = Theme.TextSecondary,
                 BackColor = Color.Transparent,
@@ -332,13 +366,13 @@ namespace VolumeMixer
             };
             closeBtn.Click += (s, e) => { _reallyClosing = true; Application.Exit(); };
 
-            var minimizeBtn = new TitleBarButton("\u2013")
+            var minimizeBtn = new TitleBarButton("–")
             {
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
             minimizeBtn.Click += (s, e) => HideToTray();
 
-            var settingsBtn = new TitleBarButton("\u2699")
+            var settingsBtn = new TitleBarButton("⚙")
             {
                 Anchor = AnchorStyles.Top | AnchorStyles.Right
             };
@@ -544,6 +578,7 @@ namespace VolumeMixer
 
             if (_muteToggle.IsOn) SendMediaPlayPause();
             SyncSessions(force: true);
+            UpdateOverlay();
         }
 
         private void SendMediaPlayPause()
@@ -654,12 +689,12 @@ namespace VolumeMixer
                 e.Graphics.DrawLine(new System.Drawing.Pen(Theme.Border, 1),
                     0, ((Control)s).Height - 1, ((Control)s).Width, ((Control)s).Height - 1);
 
-            var backBtn = new GhostButton { Text = "\u2190  Back", Size = new Size(76, 28), Location = new Point(14, 11) };
+            var backBtn = new GhostButton { Text = "←  Back", Size = new Size(76, 28), Location = new Point(14, 11) };
             backBtn.Click += (s, e) => HideSettings();
 
             var titleLbl = new Label
             {
-                Text = "INPUT DEVICES",
+                Text = "SETTINGS",
                 Font = new Font("Segoe UI", 9f, FontStyle.Bold),
                 ForeColor = Theme.TextPrimary,
                 BackColor = Color.Transparent,
@@ -667,24 +702,155 @@ namespace VolumeMixer
                 Location = new Point(98, 16)
             };
 
-            var selectAllBtn = new GhostButton { Text = "Select All", Size = new Size(80, 28) };
-            var clearBtn = new GhostButton { Text = "Clear", Size = new Size(56, 28) };
-
-            Action layoutHeader = () =>
-            {
-                selectAllBtn.Location = new Point(header.Width - 80 - 56 - 14 - 6, 11);
-                clearBtn.Location = new Point(header.Width - 56 - 14, 11);
-            };
-            header.Resize += (s, e) => layoutHeader();
-            header.HandleCreated += (s, e) => layoutHeader();
-
             header.Controls.Add(backBtn);
             header.Controls.Add(titleLbl);
-            header.Controls.Add(selectAllBtn);
-            header.Controls.Add(clearBtn);
+
+            // ── Section header helper ────────────────────────────────────────
+            Func<string, int, Panel> MakeSection = (sectionTitle, h) =>
+            {
+                var sec = new Panel { Dock = DockStyle.Top, Height = h, BackColor = Theme.Surface };
+                sec.Paint += (s, e) =>
+                {
+                    var c = (Control)s;
+                    e.Graphics.DrawLine(new System.Drawing.Pen(Theme.Border, 1), 0, 0, c.Width, 0);
+                    e.Graphics.DrawLine(new System.Drawing.Pen(Theme.Border, 1), 0, c.Height - 1, c.Width, c.Height - 1);
+                };
+                var lbl = new Label
+                {
+                    Text = sectionTitle,
+                    Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
+                    ForeColor = Theme.Accent,
+                    BackColor = Color.Transparent,
+                    AutoSize = true,
+                    Location = new Point(16, (h - 14) / 2)
+                };
+                sec.Controls.Add(lbl);
+                return sec;
+            };
+
+            // ── GENERAL section ─────────────────────────────────────────────
+            var generalSection = MakeSection("GENERAL", 30);
+
+            var startupPanel = new Panel { Dock = DockStyle.Top, Height = 44, BackColor = Theme.Background };
+            startupPanel.Paint += (s, e) =>
+                e.Graphics.DrawLine(new System.Drawing.Pen(Theme.Border, 1),
+                    0, ((Control)s).Height - 1, ((Control)s).Width, ((Control)s).Height - 1);
+
+            var startupChk = new CheckBox
+            {
+                Text = "Start with Windows",
+                Font = new Font("Segoe UI", 9f),
+                ForeColor = Theme.TextPrimary,
+                BackColor = Color.Transparent,
+                Checked = _startWithWindows,
+                AutoSize = true,
+                Location = new Point(16, 12)
+            };
+            startupChk.CheckedChanged += (s, e) =>
+            {
+                _startWithWindows = startupChk.Checked;
+                SetStartWithWindows(_startWithWindows);
+                SavePreferences();
+            };
+            startupPanel.Controls.Add(startupChk);
+
+            // ── OVERLAY section ─────────────────────────────────────────────
+            var overlaySection = MakeSection("OVERLAY", 30);
+
+            var overlayPanel = new Panel { Dock = DockStyle.Top, Height = 44, BackColor = Theme.Background };
+            overlayPanel.Paint += (s, e) =>
+                e.Graphics.DrawLine(new System.Drawing.Pen(Theme.Border, 1),
+                    0, ((Control)s).Height - 1, ((Control)s).Width, ((Control)s).Height - 1);
+
+            var overlayChk = new CheckBox
+            {
+                Text = "Show floating status overlay",
+                Font = new Font("Segoe UI", 9f),
+                ForeColor = Theme.TextPrimary,
+                BackColor = Color.Transparent,
+                Checked = _overlayEnabled,
+                AutoSize = true,
+                Location = new Point(16, 12)
+            };
+            overlayPanel.Controls.Add(overlayChk);
+
+            var overlayOptionsPanel = new Panel { Dock = DockStyle.Top, Height = 88, BackColor = Theme.Background, Visible = _overlayEnabled };
+            overlayOptionsPanel.Paint += (s, e) =>
+                e.Graphics.DrawLine(new System.Drawing.Pen(Theme.Border, 1),
+                    0, ((Control)s).Height - 1, ((Control)s).Width, ((Control)s).Height - 1);
+
+            var monLabel = new Label { Text = "Monitor", Font = new Font("Segoe UI", 8.5f), ForeColor = Theme.TextSecondary, BackColor = Color.Transparent, AutoSize = true, Location = new Point(16, 14) };
+            var monCombo = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Size = new Size(180, 26), Location = new Point(90, 10) };
+            var allScreens = Screen.AllScreens;
+            for (int i = 0; i < allScreens.Length; i++)
+                monCombo.Items.Add(allScreens[i].Primary ? string.Format("Monitor {0} (Primary)", i + 1) : string.Format("Monitor {0}", i + 1));
+            monCombo.SelectedIndex = Math.Max(0, Math.Min(_overlayMonitor, allScreens.Length - 1));
+
+            var cornerLabel = new Label { Text = "Position", Font = new Font("Segoe UI", 8.5f), ForeColor = Theme.TextSecondary, BackColor = Color.Transparent, AutoSize = true, Location = new Point(16, 58) };
+            var cornerCombo = new DarkComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Size = new Size(180, 26), Location = new Point(90, 54) };
+            cornerCombo.Items.AddRange(new object[] { "Top Left", "Top Right", "Bottom Left", "Bottom Right" });
+            cornerCombo.SelectedIndex = (int)_overlayCorner;
+
+            monCombo.SelectedIndexChanged += (s, e) =>
+            {
+                _overlayMonitor = monCombo.SelectedIndex;
+                if (_overlay != null) _overlay.SetPosition(_overlayCorner, _overlayMonitor, _overlayOffsetX, _overlayOffsetY);
+                SavePreferences();
+            };
+            cornerCombo.SelectedIndexChanged += (s, e) =>
+            {
+                _overlayCorner = (OverlayCorner)cornerCombo.SelectedIndex;
+                if (_overlay != null) _overlay.SetPosition(_overlayCorner, _overlayMonitor, _overlayOffsetX, _overlayOffsetY);
+                SavePreferences();
+            };
+            overlayChk.CheckedChanged += (s, e) =>
+            {
+                _overlayEnabled = overlayChk.Checked;
+                overlayOptionsPanel.Visible = _overlayEnabled;
+                ApplyOverlaySetting();
+                SavePreferences();
+            };
+
+            overlayOptionsPanel.Controls.Add(monLabel);
+            overlayOptionsPanel.Controls.Add(monCombo);
+            overlayOptionsPanel.Controls.Add(cornerLabel);
+            overlayOptionsPanel.Controls.Add(cornerCombo);
+
+            // ── MIC MUTE DEVICES section ─────────────────────────────────────
+            var micSection = new Panel { Dock = DockStyle.Top, Height = 40, BackColor = Theme.Surface };
+            micSection.Paint += (s, e) =>
+            {
+                var c = (Control)s;
+                e.Graphics.DrawLine(new System.Drawing.Pen(Theme.Border, 1), 0, 0, c.Width, 0);
+                e.Graphics.DrawLine(new System.Drawing.Pen(Theme.Border, 1), 0, c.Height - 1, c.Width, c.Height - 1);
+            };
+            var micSectionLbl = new Label
+            {
+                Text = "MIC MUTE DEVICES",
+                Font = new Font("Segoe UI", 7.5f, FontStyle.Bold),
+                ForeColor = Theme.Accent,
+                BackColor = Color.Transparent,
+                AutoSize = true,
+                Location = new Point(16, 13)
+            };
+
+            var selectAllBtn = new GhostButton { Text = "Select All", Size = new Size(80, 26) };
+            var clearBtn = new GhostButton { Text = "Clear", Size = new Size(56, 26) };
+
+            Action layoutMicSection = () =>
+            {
+                selectAllBtn.Location = new Point(micSection.Width - 80 - 56 - 14 - 6, 7);
+                clearBtn.Location = new Point(micSection.Width - 56 - 14, 7);
+            };
+            micSection.Resize += (s, e) => layoutMicSection();
+            micSection.HandleCreated += (s, e) => layoutMicSection();
+
+            micSection.Controls.Add(micSectionLbl);
+            micSection.Controls.Add(selectAllBtn);
+            micSection.Controls.Add(clearBtn);
 
             // ── Description ─────────────────────────────────────────────────
-            var descPanel = new Panel { Dock = DockStyle.Top, Height = 40, BackColor = Theme.Background };
+            var descPanel = new Panel { Dock = DockStyle.Top, Height = 36, BackColor = Theme.Background };
             var descLbl = new Label
             {
                 Text = "Select which input devices the mic mute hotkey controls.",
@@ -738,7 +904,6 @@ namespace VolumeMixer
                 SavePreferences();
             };
 
-            // Add rows in reverse order (Dock.Top stacks from top)
             for (int i = devices.Count - 1; i >= 0; i--)
             {
                 var d = devices[i];
@@ -766,33 +931,15 @@ namespace VolumeMixer
                 deviceList.Controls.Add(noDevLbl);
             }
 
-            // ── Start with Windows ──────────────────────────────────────────────
-            var startupPanel = new Panel { Dock = DockStyle.Top, Height = 44, BackColor = Theme.Background };
-            startupPanel.Paint += (s, e) =>
-                e.Graphics.DrawLine(new System.Drawing.Pen(Theme.Border, 1),
-                    0, ((Control)s).Height - 1, ((Control)s).Width, ((Control)s).Height - 1);
-
-            var startupChk = new CheckBox
-            {
-                Text = "Start with Windows",
-                Font = new Font("Segoe UI", 9f),
-                ForeColor = Theme.TextPrimary,
-                BackColor = Color.Transparent,
-                Checked = _startWithWindows,
-                AutoSize = true,
-                Location = new Point(16, 12)
-            };
-            startupChk.CheckedChanged += (s, e) =>
-            {
-                _startWithWindows = startupChk.Checked;
-                SetStartWithWindows(_startWithWindows);
-                SavePreferences();
-            };
-            startupPanel.Controls.Add(startupChk);
-
+            // Controls.Add order: last added = topmost (DockStyle.Top stacks from top)
             _settingsPanel.Controls.Add(deviceList);
-            _settingsPanel.Controls.Add(startupPanel);
             _settingsPanel.Controls.Add(descPanel);
+            _settingsPanel.Controls.Add(micSection);
+            _settingsPanel.Controls.Add(overlayOptionsPanel);
+            _settingsPanel.Controls.Add(overlayPanel);
+            _settingsPanel.Controls.Add(overlaySection);
+            _settingsPanel.Controls.Add(startupPanel);
+            _settingsPanel.Controls.Add(generalSection);
             _settingsPanel.Controls.Add(header);
         }
 
@@ -916,6 +1063,49 @@ namespace VolumeMixer
             if (e.Button == MouseButtons.Left) { ReleaseCapture(); SendMessage(Handle, 0xA1, 0x2, 0); }
         }
 
+        // ══════════════════════════════════════════════════════════════════════
+        //  OVERLAY
+        // ══════════════════════════════════════════════════════════════════════
+        private void UpdateOverlay()
+        {
+            if (_overlay == null || !_overlay.IsHandleCreated) return;
+            _overlay.UpdateState(GetAudioMuted(), _micMuted);
+        }
+
+        private bool GetAudioMuted()
+        {
+            var names = _sessionList.GetCheckedProcessNames();
+            if (names.Count == 0) return false;
+            foreach (var name in names)
+            {
+                var s = _sessionList.GetSession(name);
+                if (s != null && !s.IsMuted) return false;
+            }
+            return true;
+        }
+
+        private void ApplyOverlaySetting()
+        {
+            if (_overlayEnabled)
+            {
+                if (_overlay == null)
+                {
+                    _overlay = new OverlayForm();
+                    _overlay.SetPosition(_overlayCorner, _overlayMonitor, _overlayOffsetX, _overlayOffsetY);
+                    _overlay.Show();
+                    UpdateOverlay();
+                }
+                else
+                {
+                    _overlay.SetPosition(_overlayCorner, _overlayMonitor, _overlayOffsetX, _overlayOffsetY);
+                }
+            }
+            else
+            {
+                if (_overlay != null) { _overlay.Close(); _overlay.Dispose(); _overlay = null; }
+            }
+        }
+
         protected override void OnPaint(PaintEventArgs e)
         {
             base.OnPaint(e);
@@ -932,6 +1122,7 @@ namespace VolumeMixer
             }
             _pollTimer?.Stop();
             _trayIcon?.Dispose();
+            if (_overlay != null) { _overlay.Close(); _overlay.Dispose(); _overlay = null; }
             if (_hookHandle != IntPtr.Zero) UnhookWindowsHookEx(_hookHandle);
             base.OnFormClosing(e);
         }
