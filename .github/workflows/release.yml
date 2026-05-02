@@ -53,5 +53,10 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: Volume Mixer v${{ env.VERSION }}
-          generate_release_notes: true
+          body: |
+            ## What's new
+
+            - **Status overlay** — a small always-on-top widget shows your mic and audio mute state at a glance, works on top of most games (windowed and fullscreen-optimised modes)
+            - **Organised settings page** — settings now split into three sections: General, Overlay, and Mic Mute Devices; overlay monitor and corner position controls only appear when the overlay is enabled
+            - **Dark-themed dropdowns** — replaced the old Windows-style combo boxes with custom-drawn dark ones that match the rest of the UI
           files: installer-output/VolumeMixer-Setup-v${{ env.VERSION }}.exe
