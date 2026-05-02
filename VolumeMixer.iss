@@ -4,7 +4,9 @@
 ; Output: a single Setup.exe your friends download and run once.
 
 #define AppName    "Volume Mixer"
-#define AppVersion "2.0.5"
+#ifndef AppVersion
+  #define AppVersion "2.0.5"
+#endif
 #define AppPublisher "generallouay"
 #define AppURL     "https://github.com/generallouay/custom-volume-mixer"
 #define AppExe     "Volume Mixer.exe"
