@@ -22,19 +22,6 @@ jobs:
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      - name: Setup NuGet
-        uses: NuGet/setup-nuget@v2
-
-      - name: Cache NuGet packages
-        uses: actions/cache@v4
-        with:
-          path: packages
-          key: nuget-${{ hashFiles('**/packages.config') }}
-          restore-keys: nuget-
-
-      - name: Restore NuGet packages
-        run: nuget restore "Volume Mixer.csproj" -PackagesDirectory packages
-
       - name: Build
         run: |
           msbuild "Volume Mixer.csproj" `

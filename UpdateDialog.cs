@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Drawing;
 using System.Drawing.Drawing2D;
+using System.Text;
 using System.Windows.Forms;
 
 namespace VolumeMixer
@@ -68,11 +69,12 @@ namespace VolumeMixer
                 Location = new Point(20, 58)
             };
 
-            string notes = string.IsNullOrWhiteSpace(_info.ReleaseNotes)
+            string rawNotes = StripMarkdown(_info.ReleaseNotes);
+            string notes = string.IsNullOrWhiteSpace(rawNotes)
                 ? "No release notes provided."
-                : _info.ReleaseNotes.Length > 160
-                    ? _info.ReleaseNotes.Substring(0, 157) + "..."
-                    : _info.ReleaseNotes;
+                : rawNotes.Length > 200
+                    ? rawNotes.Substring(0, 197) + "..."
+                    : rawNotes;
 
             var notesBox = new Label
             {
@@ -188,6 +190,23 @@ namespace VolumeMixer
         private void Drag(object sender, MouseEventArgs e)
         {
             if (e.Button == MouseButtons.Left) { ReleaseCapture(); SendMessage(Handle, 0xA1, 0x2, 0); }
+        }
+
+        private static string StripMarkdown(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return text;
+            var sb = new StringBuilder();
+            foreach (var rawLine in text.Split('\n'))
+            {
+                string line = rawLine.TrimEnd('\r');
+                if (line.StartsWith("### ")) line = line.Substring(4);
+                else if (line.StartsWith("## ")) line = line.Substring(3);
+                else if (line.StartsWith("# ")) line = line.Substring(2);
+                if (line.StartsWith("- ")) line = "• " + line.Substring(2);
+                line = line.Replace("**", "").Replace("__", "").Replace("`", "");
+                sb.AppendLine(line);
+            }
+            return sb.ToString().Trim();
         }
     }
 

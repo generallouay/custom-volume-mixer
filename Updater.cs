@@ -2,7 +2,6 @@ using System;
 using System.Diagnostics;
 using System.Net;
 using System.Reflection;
-using System.Runtime.Serialization.Json;
 using System.IO;
 using System.Text;
 using Microsoft.Win32;
@@ -138,13 +137,29 @@ namespace VolumeMixer
 
             if (json[idx] == '"')
             {
-                // String value
+                // String value — decode JSON escape sequences
                 idx++;
                 var sb = new StringBuilder();
                 while (idx < json.Length && json[idx] != '"')
                 {
-                    if (json[idx] == '\\') idx++; // skip escape char
-                    if (idx < json.Length) sb.Append(json[idx]);
+                    if (json[idx] == '\\')
+                    {
+                        idx++;
+                        if (idx >= json.Length) break;
+                        switch (json[idx])
+                        {
+                            case 'n':  sb.Append('\n'); break;
+                            case 'r':  sb.Append('\r'); break;
+                            case 't':  sb.Append('\t'); break;
+                            case '"':  sb.Append('"');  break;
+                            case '\\': sb.Append('\\'); break;
+                            default:   sb.Append(json[idx]); break;
+                        }
+                    }
+                    else
+                    {
+                        sb.Append(json[idx]);
+                    }
                     idx++;
                 }
                 return sb.ToString();
