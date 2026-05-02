@@ -50,9 +50,8 @@ jobs:
         with:
           name: Volume Mixer v${{ env.VERSION }}
           body: |
-            ## What's new
+            ## What's new in v${{ env.VERSION }}
 
-            - **Status overlay** — a small always-on-top widget shows your mic and audio mute state at a glance, works on top of most games (windowed and fullscreen-optimised modes)
-            - **Organised settings page** — settings now split into three sections: General, Overlay, and Mic Mute Devices; overlay monitor and corner position controls only appear when the overlay is enabled
-            - **Dark-themed dropdowns** — replaced the old Windows-style combo boxes with custom-drawn dark ones that match the rest of the UI
+            - **Mute status overlay** — a small always-on-top indicator now sits in the corner of your screen showing whether your mic and audio are muted. Works over most games. Enable it and pick your monitor and corner in Settings.
+            - **Cleaner settings screen** — settings are now grouped into sections so everything is easier to find.
           files: installer-output/VolumeMixer-Setup-v${{ env.VERSION }}.exe
